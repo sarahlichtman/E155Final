@@ -10,17 +10,29 @@
 
 //define constants
 #define RESET 		PORTFbits.RF0
-#define DAC_CLOAD		PORTFbits.RF1
+#define DAC_CLOAD	PORTFbits.RF1
 #define TOLERANCE 	100 		//ADC level difference allowance
 #define NUMPTS		200		// this... maybe shouldn't be a constant.
+#define PI 			3.14159
+
+#define TOTAL_WAVES	8		// How many notes we're dealing with	
+#define	C3 			261.6 	// Hz
+#define	D3 			293.7 	// Hz
+#define	E3 			329.6 	// Hz
+#define	F3 			349.2 	// Hz
+#define	G3 			392.0 	// Hz
+#define	A3 			440.0 	// Hz
+#define	B3 			493.9 	// Hz
+#define	C4 			523.2 	// Hz
+
 
 // constant lengths of sine arrays
-int lens[8] = {NUMPTS, NUMPTS*(261.6/293.7), NUMPTS*(261.6/329.6), NUMPTS*(261.6/349.2), NUMPTS*(261.6/392.0), NUMPTS*(261.6/440.0), NUMPTS*(261.6/493.9), NUMPTS*(261.6/523.2)};
+unsigned short lens[TOTAL_WAVES] = {NUMPTS, NUMPTS*(C3/D3), NUMPTS*(C3/E3), NUMPTS*(C3/F3), NUMPTS*(C3/G3), NUMPTS*(C3/A3), NUMPTS*(C3/B3), NUMPTS*(C3/C4)};
 //constant sine tables
-short sinC5[NUMPTS], sinD5[NUMPTS], sinE5[NUMPTS], sinF5[NUMPTS], sinG5[NUMPTS], sinA5[NUMPTS], sinB5[NUMPTS], sinC6[NUMPTS];
+unsigned short sin_waves[TOTAL_WAVES][NUMPTS] = {{0}};
 
 // global starting points in each sine
-int starts[8] = {0};
+unsigned short starts[TOTAL_WAVES] = {0};
 
 void init_PIC(void){
 	//setup appropriate output pin as output, and serial connection
@@ -38,7 +50,7 @@ void init_PIC(void){
 	T1CON1bits.TCKPS = 0; // 1:1 prescalar
 	TMR1 = 0; // reset timer
 	//set up timer for playing sine wave
-	PR1 = (short) ((20000000/NUMPTS)/261.6-1); // set period register for freq.
+	PR1 = (unsigned short) ((20000000/NUMPTS)/C3-1); // set period register for freq.
 	// T1CONbits.ON = 1; // turn Timer1 on
 
 
@@ -76,97 +88,48 @@ void spi_sendWave(short send){
 
 
 void init_sines(void){
-	int i;
-	int pts;
-	for(i=0; i<lens[0]; i++){
-		sinC5[i] = 2047*(sin(2*3.14159*i/NUMPTS)+1);
+	unsigned char i;
+	unsigned short j;
+	for (i=0; i<TOTAL_WAVES; i++) {
+		for (j=0; j<lens[i]; j++) {
+			sin_waves[i][j] = 2047*(sin(2*PI*j/lens[i])+1);
+		}
 	}
-
-	for(i=0; i<lens[1]; i++){
-		sinD5[i] = 2047*(sin(2*3.14159*i/lens[1])+1);
-	}
-
-	for(i=0; i<lens[2]; i++){
-		sinE5[i] = 2047*(sin(2*3.14159*i/lens[2])+1);
-	}		
-
-	for(i=0; i<lens[3]; i++){
-		sinF5[i] = 2047*(sin(2*3.14159*i/lens[3])+1);
-	}
-
-	for(i=0; i<lens[4]; i++){
-		sinG5[i] = 2047*(sin(2*3.14159*i/lens[4])+1);
-	}
-
-	for(i=0; i<lens[5]; i++){
-		sinA5[i] = 2047*(sin(2*3.14159*i/lens[5])+1);
-	}
-
-	for(i=0; i<lens[6]; i++){
-		sinB5[i] = 2047*(sin(2*3.14159*i/lens[6])+1);
-	}	
-
-	for(i=0; i<lens[7]; i++){
-		sinC6[i] = 2047*(sin(2*3.14159*i/lens[7])+1);
-	}	
 }
 
 
 
-void set_threshholds(int thresh[8]){
+void set_threshholds(int thresh[TOTAL_WAVES]){
 	//read the ADC to set default threshhold values
 	
 	//set threshhold levels to current input voltage levels
-	initadc(2);	
-	thresh[0] = readadc();
-	initadc(3);	
-	thresh[1] = readadc();
-	initadc(4);	
-	thresh[2] = readadc();
-	initadc(5);	
-	thresh[3] = readadc();
-	initadc(6);	
-	thresh[4] = readadc();
-	initadc(7);	
-	thresh[5] = readadc();
-	initadc(8);	
-	thresh[6] = readadc();
-	initadc(9);	
-	thresh[7] = readadc();
+	unsigned char i = 0;
+	for (i=0; i<TOTAL_WAVES; i++) {
+		initadc(i+2);
+		thresh[i] = readadc();
+	}
 
 }
 
-_Bool read_lasers(int thresh[8], _Bool play[8]){
+_Bool read_lasers(int thresh[TOTAL_WAVES], _Bool play[TOTAL_WAVES]){
 	//sample all 8 lasers
 	//will associate "high" input as "add this frequency to output signal"
 	//return TRUE if changed from previous, FALSE if the same
 
-	int temp[8]; //sample the 8 analog inputs
-	initadc(2);	
-	temp[0] = readadc();
-	initadc(3);	
-	temp[1] = readadc();
-	initadc(4);	
-	temp[2] = readadc();
-	initadc(5);	
-	temp[3] = readadc();
-	initadc(6);	
-	temp[4] = readadc();
-	initadc(7);	
-	temp[5] = readadc();
-	initadc(8);	
-	temp[6] = readadc();
-	initadc(9);	
-	temp[7] = readadc();
+	unsigned char i = 0;
+	int temp[TOTAL_WAVES]; //sample the 8 analog inputs
+	for (i=0;i<TOTAL_WAVES; i++) {
+		initadc(i+2);
+		temp[i] = readadc();
+	}
 
 	// SEND LASERS ON TO FPGA (VIA SPI)
 	short tosend = 0;
 	_Bool retval = 0;
-	int i;
-	_Bool play2[8] = {0}; ///
+	_Bool play2[TOTAL_WAVES] = {0}; ///
 	short lights = 0x0; ////
 	
-	for(i=0; i<8; i++){
+	for(i=0; i<TOTAL_WAVES; i++){
 		if(temp[i]<thresh[i]-TOLERANCE){ //the laser is blocked
 			if(play[i]){
 				retval = 0; // no change
@@ -197,30 +160,26 @@ void build_sine(_Bool *play){
 	// output sine signal to DAC (max 1.4MHz signal)
 	// we're using a 12-bit 1-sided supply DAC
 		// sin(double x) returns a double
-	short output[NUMPTS] = {0};
-	short i = 0; 
-	char count = 0;
-	for(i=0; i<8; i++){
+	unsigned short output[NUMPTS] = {0};
+	unsigned short i = 0;
+	unsigned char j = 0; 
+	unsigned char count = 0;
+	for(i=0; i<TOTAL_WAVES; i++){
 		count = play[i] ? count + 1 : count;
 	}
 	count = count ? count : 1;	
 	
 	for(i=0; i<NUMPTS; i++){
-		output[i] = play[0] ? output[i] + sinC5[(starts[0] + i)%lens[0]] : output[i];
-		output[i] = play[1] ? output[i] + sinD5[(starts[1] + i)%lens[1]] : output[i];
-		output[i] = play[2] ? output[i] + sinE5[(starts[2] + i)%lens[2]] : output[i];
-		output[i] = play[3] ? output[i] + sinF5[(starts[3] + i)%lens[3]] : output[i];
-		output[i] = play[4] ? output[i] + sinG5[(starts[4] + i)%lens[4]] : output[i];
-		output[i] = play[5] ? output[i] + sinA5[(starts[5] + i)%lens[5]] : output[i];
-		output[i] = play[6] ? output[i] + sinB5[(starts[6] + i)%lens[6]] : output[i];
-		output[i] = play[7] ? output[i] + sinC6[(starts[7] + i)%lens[7]] : output[i];
+		for (j=0; j<TOTAL_WAVES; j++) {
+			output[i] = play[j] ? output[i] + sin_waves[j][(starts[j] + i)%lens[j]] : output[i];
+		}
 
 		while(IFS0bits.T1IF == 0){}; // wait until time to change
 		IFS0bits.T1IF = 0; // clear timer overflow flag
-		spi_sendWave((short) (output[i]/count));//write output[i] to DAC
+		spi_sendWave((unsigned short) (output[i]/count));//write output[i] to DAC
 		
 	}
-	for(i=0; i<8; i++){
+	for(i=0; i<TOTAL_WAVES; i++){
 		starts[i] = (starts[i]+NUMPTS)%lens[i];
 	}
 }
@@ -234,21 +193,21 @@ void init_SPI(void) {
 	TRISFbits.TRISF5 = 0;			// SD04 as output
 	DAC_CLOAD = 0;					// CLOAD as output
 	
-	 short junk;
-	 SPI2CONbits.ON = 0; //disable SPI to reset
-	 SPI4CONbits.ON = 0;
-	 junk = SPI2BUF;     //read buffer to clear it
-	 junk = SPI4BUF;
-	 SPI2BRG = 7;         //set BAUD rate to 1.25MHz, with Pclk at 20MHz
-	 SPI4BRG = 7;     	  
-	 SPI2CONbits.MODE16 = 1;//set to 16-bit buffer
-	 SPI4CONbits.MODE16 = 1;   // 16-bit buffer
-	 SPI2CONbits.MSTEN = 1; //enable as master
-	 SPI4CONbits.MSTEN = 1; 
-	 SPI2CONbits.CKE = 1;  //center clock-to-data timing
-	 SPI4CONbits.CKE = 1;
-	 SPI2CONbits.ON = 1; //turn SPI on
-	 SPI4CONbits.ON = 1; 
+	short junk;
+ 	SPI2CONbits.ON = 0; //disable SPI to reset
+	SPI4CONbits.ON = 0;
+	junk = SPI2BUF;     //read buffer to clear it
+	junk = SPI4BUF;
+	SPI2BRG = 7;         //set BAUD rate to 1.25MHz, with Pclk at 20MHz
+	SPI4BRG = 7;     	  
+	SPI2CONbits.MODE16 = 1;//set to 16-bit buffer
+	SPI4CONbits.MODE16 = 1;   // 16-bit buffer
+	SPI2CONbits.MSTEN = 1; //enable as master
+	SPI4CONbits.MSTEN = 1; 
+	SPI2CONbits.CKE = 1;  //center clock-to-data timing
+	SPI4CONbits.CKE = 1;
+	SPI2CONbits.ON = 1; //turn SPI on
+	SPI4CONbits.ON = 1; 
 	 
   
 }
@@ -260,8 +219,8 @@ int main(void){
 	init_PIC();
 	init_sines();
 
-	_Bool play[8] = {0};
-	int thresh[8];
+	_Bool play[TOTAL_WAVES] = {0};
+	int thresh[TOTAL_WAVES];
 	_Bool changed = 0;
 
 	while(1){
