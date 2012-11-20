@@ -12,7 +12,7 @@
 #define RESET 		PORTFbits.RF0
 #define DAC_CLOAD	PORTFbits.RF1
 #define TOLERANCE 	100 		//ADC level difference allowance
-#define NUMPTS		200	
+#define NUMPTS		50	
 #define PI 			3.14159
 
 #define TOTAL_WAVES	8		// How many notes we're dealing with	
@@ -25,9 +25,9 @@
 #define	B3 			493.9 	// Hz
 #define	C4 			523.2 	// Hz
 
-// Timer is running at 20 MHz/256 = 78.125 kHz. We want to have the base frequency be 261.6 Hz, meaning a period of 3.8 ms. 
-// The timer increments every 12.8 us, so we want to change when timer = 3.8e-3/12.8e-6 = 299.21. That is our duration value.
-#define duration	300
+// Timer is running at 20 MHz/1 = 20 MHz. We want to have the base frequency be 261.6 Hz, with a sampling frequency of NUMPTS*261.1 
+// We want to change when timer = 20 MHz/(NUMPTS*261.1) = 383. That is our duration value
+#define duration	1532
 
 
 // constant lengths of sine arrays
@@ -44,6 +44,7 @@ void init_SPI(void) {
 	
 	TRISBbits.TRISB14 = 0; 	// set sync. clock pin as output
 	TRISFbits.TRISF5 = 0;	// SD04 as output
+	TRISFbits.TRISF0 = 0;	// CLOAD as output
 	DAC_CLOAD = 0;			// CLOAD as output
 	
 	short junk;
@@ -81,17 +82,11 @@ void init_PIC(void){
 	TRISF = 0x1; // set up input pin for reset signal
 	
 	// set up LEDs for testing
-	// TRISE = 0x0;
-	// TRISD = 0x0; //PORTD as outputs
+	TRISD = 0x0; //PORTD as outputs
+	TRISE = 0x0;
 	
-	T1CON = 0b1001000000110000;	
-	// T1CONbits.ON = 0;
-	// T1CON1bits.TCS = 0; // internal clock
-	// T1CON1bits.TCKPS = 1; // 1:256 prescalar
+	T1CON = 0b1001000000000000;	
 	TMR1 = 0; // reset timer
-	//set up timer for playing sine wave
-	// PR1 = (unsigned short) ((20000000/NUMPTS)/C3-1); // set period register for freq.
-	// T1CONbits.ON = 1; // turn Timer1 on
 }
 
 void initadc(int channel) {	
@@ -119,6 +114,7 @@ void spi_sendNotes(char send){
 }
 
 void spi_sendWave(unsigned short send){
+	PORTEbits.RE0 = 1;
   //use SPI4 to send the 12-bit signal to the DAC
   DAC_CLOAD = 1; 		//disable load while changing
   SPI4BUF = send;
@@ -126,6 +122,7 @@ void spi_sendWave(unsigned short send){
   	continue; // wait until complete
   }
   DAC_CLOAD = 0; 		// send new point to analog output
+	PORTEbits.RE0 = 0;
 }
 
 void set_threshholds(int thresh[TOTAL_WAVES]){
@@ -196,26 +193,20 @@ void build_sine(_Bool *play){
 	for(i=0; i<TOTAL_WAVES; i++){
 		count = play[i] ? count + 1 : count;
 	}
-	count = count ? count : 1; // Make sure count isn't 0. Otherwise we'd divide by zero later.
-	
-	for(i=0; i<NUMPTS; i++){
-		for (j=0; j<TOTAL_WAVES; j++) {
-			output[i] = play[j] ? output[i] + sin_waves[j][(starts[j] + i)%lens[j]] : output[i];
+	if (count != 0) {
+		for(i=0; i<NUMPTS; i++){
+			for (j=0; j<TOTAL_WAVES; j++) {
+				output[i] = play[j] ? output[i] + sin_waves[j][(starts[j] + i)%lens[j]] : output[i];
+			}
+			while (TMR1 < duration) {
+				continue;
+			}
+			TMR1 = 0;
+			spi_sendWave((unsigned short) (output[i]/count));//write output[i] to DAC
 		}
-
-		while (TMR1 < duration) {
-			continue;
-		}
-		spi_sendWave((unsigned short) (output[i]/count));//write output[i] to DAC
-		TMR1 = 0;		// Reset the timer back to 0.
-
-		// while(IFS0bits.T1IF == 0){}; // wait until time to change
-		// IFS0bits.T1IF = 0; // clear timer overflow flag
-		// spi_sendWave((unsigned short) (output[i]/count));//write output[i] to DAC
-		
-	}
-	for(i=0; i<TOTAL_WAVES; i++){
-		starts[i] = (starts[i]+NUMPTS)%lens[i];
+		for(i=0; i<TOTAL_WAVES; i++){
+			starts[i] = (starts[i]+NUMPTS)%lens[i];
+		}	
 	}
 }
 
